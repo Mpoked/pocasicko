@@ -67,3 +67,49 @@ Additionally, make sure that the following extensions are enabled in your PHP:
 - json (enabled by default - don't turn it off)
 - [mysqlnd](http://php.net/manual/en/mysqlnd.install.php) if you plan to use MySQL
 - [libcurl](http://php.net/manual/en/curl.requirements.php) if you plan to use the HTTP\CURLRequest library
+
+## Automatické mazání starých dat (cron)
+
+Záznamy v tabulce `data` se po 11 letech označí jako smazané (soft delete –
+nastaví se sloupec `deleted_at`, řádek v tabulce zůstane). Dělá to spark příkaz:
+
+```
+php spark data:cleanup              # smaže data starší 11 let
+php spark data:cleanup --dry-run    # jen vypíše, kolik záznamů by smazal
+php spark data:cleanup --years 5    # jiná hranice než 11 let
+```
+
+Příkaz je v `app/Commands/DeleteOldData.php`. Opakované spuštění nic nerozbije –
+už smazané záznamy podruhé nebere. Výsledek zapisuje do logu v `writable/logs/`.
+
+### Nastavení cronu na serveru
+
+Spouští se jednou za měsíc, prvního dne ve 3:00 ráno. Na serveru spusťte
+`crontab -e` a přidejte řádek (cestu k projektu a k PHP upravte podle serveru):
+
+```
+0 3 1 * * cd /var/www/pocasicko && /usr/bin/php spark data:cleanup >> /var/www/pocasicko/writable/logs/cron-cleanup.log 2>&1
+```
+
+Význam polí: `0 3 1 * *` = minuta 0, hodina 3, 1. den měsíce, každý měsíc,
+jakýkoliv den v týdnu.
+
+Na co dát pozor:
+
+- `cd` do projektu je potřeba, aby `spark` našel konfiguraci – cron startuje
+  v domovském adresáři uživatele.
+- Cesta k PHP musí být celá (`which php` ji vypíše), cron nemá běžný `PATH`.
+- Cron musí běžet pod uživatelem, který má právo zapisovat do `writable/`
+  (typicky stejný jako webserver, např. `www-data`).
+- V `.env` na serveru mít `CI_ENVIRONMENT = production`.
+
+Kontrola, že je úloha nasazená: `crontab -l` vypíše seznam úloh,
+`tail writable/logs/cron-cleanup.log` pak výstup posledního spuštění.
+
+### Lokálně na Windows (Laragon)
+
+Cron na Windows není, stejnou úlohu udělá Plánovač úloh:
+
+```
+schtasks /create /tn "pocasicko-cleanup" /tr "C:\laragon\bin\php\php-8.5.9-Win32-vs17-x64\php.exe C:\laragon\www\pokorny\pocasicko\spark data:cleanup" /sc monthly /d 1 /st 03:00
+```
